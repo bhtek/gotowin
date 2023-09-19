@@ -54,13 +54,13 @@ private fun sendMessage(
             }
         }
 
-        return XSendEvent(display, XDefaultRootWindow(display), 0, SubstructureNotifyMask.or(SubstructureRedirectMask), event.ptr)
+        return XSendEvent(display, XDefaultRootWindow(display), 0, SubstructureRedirectMask or SubstructureNotifyMask, event.ptr)
     }
 }
 
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, ExperimentalStdlibApi::class)
 private fun <T> getWindowProperty(
-    display: CPointer<Display>, dstWindow: Window, message: String, xaPropType: Atom,
+    display: CPointer<Display>, dstWindow: Window, message: String, reqType: Atom,
     propertyMapper: (nItems: ULongVar, retProp: CPointerVar<UByteVar>) -> T
 ): T {
     return memScoped {
@@ -73,13 +73,13 @@ private fun <T> getWindowProperty(
         val bytesAfter = alloc<ULongVar>()
         val retProp = alloc<CPointerVar<UByteVar>>()
         val result = XGetWindowProperty(
-            display, win, msgAtom, 0, 1024, 0, xaPropType,
+            display, win, msgAtom, 0, 1024, 0, reqType,
             type.ptr, format.ptr, nItems.ptr, bytesAfter.ptr, retProp.ptr
         )
 
-        println("win: $dstWindow reqType: $xaPropType type: ${type.value}")
+        println("win: $dstWindow reqType: $reqType type: ${type.value}")
 
-        if (result != 0) throw RuntimeException("Result: $result")
+        if (result != 0) throw RuntimeException("XGetWindowProperty ${dstWindow.toHexString()} message: $message reqType: $reqType Result: $result")
 
         propertyMapper.invoke(nItems, retProp)
     }
@@ -93,15 +93,13 @@ private fun getClients(display: CPointer<Display>): List<Window> {
 
     return getWindowProperty(display, desktop, msg, XA_WINDOW) { nItems, retProp ->
         (0..<nItems.value.toInt()).map { i ->
-            val retBytes = UByteArray(8) {
-                retProp.value?.get((i * 8) + it)!!
-            }
+            val retBytes = UByteArray(8) { retProp.value?.get((i * 8) + it)!! }
             retBytes.getULongBe()
         }
     }
 }
 
-@OptIn(ExperimentalForeignApi::class, ExperimentalStdlibApi::class)
+@OptIn(ExperimentalForeignApi::class)
 fun main() {
     val display = XOpenDisplay(null) ?: error("Can't open display")
     val windows = getClients(display)
@@ -115,7 +113,7 @@ fun main() {
 
         println("Window Name: $windowName")
 
-        if (windowName.contains("digital-bank")) {
+        if (windowName.contains("Workspaces")) {
             sendMessage(display, window, "_NET_ACTIVE_WINDOW")
         }
     }
@@ -135,6 +133,7 @@ fun UByteArray.getULongBe() =
             (this[0].toULong() and 0xFFu)
 
 // Not used but handy.
+@Suppress("UNUSED")
 fun UByteArray.getULongLe() =
     ((this[0].toULong() and 0xFFu) shl 56) or
             ((this[1].toULong() and 0xFFu) shl 48) or
