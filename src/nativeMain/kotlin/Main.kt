@@ -4,50 +4,32 @@ import kotlinx.cinterop.CPointerVar
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.IntVar
 import kotlinx.cinterop.UByteVar
-import kotlinx.cinterop.UIntVar
 import kotlinx.cinterop.ULongVar
-import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
-import kotlinx.cinterop.allocPointerTo
-import kotlinx.cinterop.convert
 import kotlinx.cinterop.get
 import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.nativeHeap
-import kotlinx.cinterop.pointed
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.set
-import kotlinx.cinterop.toCValues
 import kotlinx.cinterop.toKString
-import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.value
 import x11.Atom
 import x11.AtomVar
 import x11.ClientMessage
-import x11.CurrentTime
 import x11.Display
 import x11.SubstructureNotifyMask
 import x11.SubstructureRedirectMask
-import x11.Time
 import x11.Window
-import x11.WindowVar
-import x11.XA_CARDINAL
-import x11.XA_STRING
 import x11.XA_WINDOW
 import x11.XCloseDisplay
 import x11.XDefaultRootWindow
 import x11.XDefaultScreen
 import x11.XEvent
 import x11.XFetchName
-import x11.XGetWMName
 import x11.XGetWindowProperty
 import x11.XInternAtom
 import x11.XOpenDisplay
-import x11.XQueryTree
-import x11.XRaiseWindow
 import x11.XRootWindow
 import x11.XSendEvent
-import x11.XTextProperty
-import x11.XmbTextPropertyToTextList
 
 @OptIn(ExperimentalForeignApi::class)
 private fun sendMessage(
@@ -103,40 +85,26 @@ private fun <T> getWindowProperty(
     }
 }
 
+@OptIn(ExperimentalForeignApi::class)
+private fun getClients(display: CPointer<Display>): List<Window> {
+    val screenNumber = XDefaultScreen(display)
+    val desktop = XRootWindow(display, screenNumber)
+    val msg = "_NET_CLIENT_LIST"
+
+    return getWindowProperty(display, desktop, msg, XA_WINDOW) { nItems, retProp ->
+        (0..<nItems.value.toInt()).map { i ->
+            val retBytes = UByteArray(8) {
+                retProp.value?.get((i * 8) + it)!!
+            }
+            retBytes.getULongBe()
+        }
+    }
+}
+
 @OptIn(ExperimentalForeignApi::class, ExperimentalStdlibApi::class)
 fun main() {
     val display = XOpenDisplay(null) ?: error("Can't open display")
-    val screenNumber = XDefaultScreen(display)
-    val desktop = XRootWindow(display, screenNumber)
-    val atomPid = XInternAtom(display, "_NET_WM_PID", 1)
-
-    val windows = run {
-        val msg = "_NET_CLIENT_LIST"
-//        val msgAtom = XInternAtom(display, msg, 0)
-//        val win = XDefaultRootWindow(display)
-//        val xaPropType = XA_WINDOW
-//
-//        val type = alloc<AtomVar>()
-//        val format = alloc<IntVar>()
-//        val nItems = alloc<ULongVar>()
-//        val bytesAfter = alloc<ULongVar>()
-//        val retProp = alloc<CPointerVar<UByteVar>>()
-//        val result = XGetWindowProperty(
-//            display, win, msgAtom, 0, 1024, 0, xaPropType,
-//            type.ptr, format.ptr, nItems.ptr, bytesAfter.ptr, retProp.ptr
-//        )
-//
-//        if (result != 0) throw RuntimeException("Result: $result")
-
-        getWindowProperty(display, desktop, msg, XA_WINDOW) { nItems, retProp ->
-            (0..<nItems.value.toInt()).map { i ->
-                val retBytes = UByteArray(8) {
-                    retProp.value?.get((i * 8) + it)!!
-                }
-                retBytes.getULongBe() as Window
-            }
-        }
-    }
+    val windows = getClients(display)
 
     for (window in windows) {
         val windowName = memScoped {
@@ -152,10 +120,6 @@ fun main() {
         }
     }
 
-
-//        nativeHeap.free(topLevelWindows)
-
-//    XUngrabServer(display)
     XCloseDisplay(display)
 }
 
@@ -170,6 +134,7 @@ fun UByteArray.getULongBe() =
             ((this[1].toULong() and 0xFFu) shl 8) or
             (this[0].toULong() and 0xFFu)
 
+// Not used but handy.
 fun UByteArray.getULongLe() =
     ((this[0].toULong() and 0xFFu) shl 56) or
             ((this[1].toULong() and 0xFFu) shl 48) or
